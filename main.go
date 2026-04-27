@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -32,10 +33,26 @@ const (
 	echoURL     = "https://httpbin.org/anything"
 )
 
+// failMode is set at startup from the FAIL_MODE env var. When true,
+// /quote and /echo return HTTP 500 instead of their normal 200
+// payloads. The toggle exists to drive a deliberate replay failure
+// in keploy without changing recorded test cases: record once with
+// FAIL_MODE unset (status 200 captured), then redeploy with
+// FAIL_MODE=1 and run keploy test — the recorded 200 vs the live
+// 500 is reported as a high-risk failure (status mismatches cannot
+// be silenced by noise rules the way body fields can), and once
+// enough tests fail the cluster-proxy debug bundle auto-shares.
+var failMode bool
+
 func main() {
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = defaultAddr
+	}
+	switch strings.ToLower(os.Getenv("FAIL_MODE")) {
+	case "1", "true", "yes", "on":
+		failMode = true
+		log.Print("FAIL_MODE enabled — /quote and /echo will return HTTP 500 to trigger keploy replay failures")
 	}
 
 	// One shared client; default transport already does TLS 1.2/1.3 with
@@ -81,6 +98,22 @@ func quoteHandler(client *http.Client) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Optional fail-mode toggle for keploy replay: when the
+		// FAIL_MODE env var is "1" or "true", return 500 instead of
+		// the upstream's 200. Keploy compares the response status
+		// strictly (it cannot be noise-marked the way body fields
+		// can), so a recorded 200 vs a replayed 500 is reported as
+		// a high-risk failure. Once enough tests fail, the
+		// cluster-proxy debug bundle auto-shares — which is the
+		// artefact under test here.
+		if failMode {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error":    "fail mode enabled",
+				"upstream": quoteURL,
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"upstream":   quoteURL,
 			"statusCode": resp.StatusCode,
@@ -110,6 +143,18 @@ func echoHandler(client *http.Client) http.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
+		// Same fail-mode hook as /quote: switch to 500 so the
+		// recorded 200 mismatches at replay time as a high-risk
+		// status delta (not noise-noiseable like body fields).
+		if failMode {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error":    "fail mode enabled",
+				"upstream": echoURL,
+			})
+			return
+		}
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
