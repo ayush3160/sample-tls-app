@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-tls-app
+  namespace: sample-tls-app
+  labels:
+    app.kubernetes.io/name: sample-tls-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sample-tls-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sample-tls-app
+    spec:
+      containers:
+        - name: app
+          image: sample-tls-app:dev
+          # IfNotPresent so we use the locally-loaded image (kind load
+          # docker-image / minikube image load) instead of going to a
+          # remote registry. Bump the tag and switch to Always when
+          # publishing to a real registry.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Keep both modest. The recording sidecar gets its own request
+          # bumped automatically by the keploy-agent webhook based on
+          # the MemoryLimit field in the UI; the app container itself
+          # only needs enough headroom to forward a couple of requests.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

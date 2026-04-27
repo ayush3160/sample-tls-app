@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-tls-app
+  namespace: sample-tls-app
+  labels:
+    app.kubernetes.io/name: sample-tls-app
+spec:
+  # ClusterIP keeps the app reachable from inside the cluster only —
+  # the recording driver runs as a Job/Pod the cluster proxy spawns
+  # in the same cluster, so it talks to this service over its DNS
+  # name (sample-tls-app.sample-tls-app.svc.cluster.local). Switch to
+  # NodePort or LoadBalancer if you want to curl it from your laptop.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sample-tls-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

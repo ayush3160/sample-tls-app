@@ -1,0 +1,7 @@
+# local build output and run artifacts — never check these in
+sample-tls-app
+keploy/
+keploy.yml
+keploy-logs.txt
+*.pcap
+sslkeys.log
