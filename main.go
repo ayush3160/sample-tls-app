@@ -47,8 +47,22 @@ import (
 
 const (
 	defaultAddr = ":8080"
-	quoteURL    = "https://api.github.com/zen"
-	echoURL     = "https://httpbin.org/anything"
+	// Default outbound upstreams. Overridable via the QUOTE_URL / ECHO_URL
+	// env vars (see main) so CI can point the routes at a local TLS
+	// upstream instead of these live public services — the public
+	// endpoints rate-limit (api.github.com /zen: 60 req/hr per IP) and go
+	// down for minutes at a time, which makes any test that drives these
+	// routes flaky. Non-CI deployments leave the env vars unset and keep
+	// hitting the real services.
+	defaultQuoteURL = "https://api.github.com/zen"
+	defaultEchoURL  = "https://httpbin.org/anything"
+)
+
+// quoteURL / echoURL are resolved at startup from QUOTE_URL / ECHO_URL,
+// falling back to the public defaults above.
+var (
+	quoteURL = defaultQuoteURL
+	echoURL  = defaultEchoURL
 )
 
 // failMode is set at startup from the FAIL_MODE env var. When true,
@@ -83,6 +97,17 @@ func main() {
 		failMode = true
 		log.Print("FAIL_MODE enabled — /quote and /echo will return HTTP 500 to trigger keploy replay failures")
 	}
+
+	// Allow CI (or any operator) to retarget the outbound HTTP-over-TLS
+	// routes at a different upstream. Defaults preserve the original
+	// public-API behaviour.
+	if v := os.Getenv("QUOTE_URL"); v != "" {
+		quoteURL = v
+	}
+	if v := os.Getenv("ECHO_URL"); v != "" {
+		echoURL = v
+	}
+	log.Printf("upstreams: quote=%s echo=%s", quoteURL, echoURL)
 
 	// One shared client; default transport already does TLS 1.2/1.3 with
 	// the host's CA roots. Modest timeout so a hung upstream cannot
